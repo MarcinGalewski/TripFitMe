@@ -1,0 +1,68 @@
+services:
+  db:
+    image: postgres:17-alpine # Lightweight PostgreSQL image
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # Persistent volume for database data
+    ports:
+      - "5433:5432" # Optional, for external access (e.g. DataGrip)
+  redis:
+    image: redis:8-alpine # Lightweight Redis image
+    ports:
+      - "6379:6379" # Optional
+    # environment:
+    #   REDIS_PASSWORD: ${REDIS_PASSWORD} # Uncomment if Redis requires password
+
+  backend:
+    build: ./backend # Build instructions from ./backend/Dockerfile
+    # Command to wait for DB, apply migrations, and start Django development server
+    command: ["/usr/local/bin/wait-for-it.sh", "db:5432", "--", "bash", "-c", "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"]
+    volumes:
+      - ./backend:/app # Map code from host to container
+    ports:
+      - "8000:8000" # Map container port 8000 to host port 8000
+    environment:
+      # Django project settings
+      DJANGO_SETTINGS_MODULE: config.settings # Points to your main settings file
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DEBUG: ${DEBUG}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS} # Passed as string, Django settings will parse it
+      
+      # Database connection URL (used by dj_database_url in settings.py)
+      DATABASE_URL: ${DATABASE_URL} 
+      
+      # Redis connection URL (used by django-redis in settings.py)
+      REDIS_URL: ${REDIS_URL}
+      # REDIS_PASSWORD: ${REDIS_PASSWORD} # Uncomment if Redis requires password
+
+      # External API Keys (passed directly to backend container)
+      AMADEUS_API_KEY: ${AMADEUS_API_KEY}
+      AMADEUS_API_SECRET: ${AMADEUS_API_SECRET}
+      Maps_API_KEY: ${Maps_API_KEY}
+      TRIPADVISOR_API_KEY: ${TRIPADVISOR_API_KEY}
+      SKYSKANNER_API_KEY: ${SKYSKANNER_API_KEY}
+      BREVO_API_KEY: ${BREVO_API_KEY}
+
+    depends_on:
+      - db # Backend depends on database service
+      - redis # Backend depends on Redis service
+
+  frontend:
+    build: ./frontend # Build instructions from ./frontend/Dockerfile
+    # No 'command:' here. The CMD from frontend/Dockerfile (which starts Nginx) will be used.
+    volumes:
+      - ./frontend:/app # Map code from host to container
+      - /app/node_modules # Important: prevents overwriting node_modules in container by host's empty dir
+    ports:
+      - "3000:80" # Maps host port 3000 to container port 80 (where Nginx listens)
+    environment:
+      # URL to backend API, accessible by the React app
+      REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL}
+    depends_on:
+      - backend # Frontend depends on backend service
+
+volumes:
+  postgres_data: # Volume definition for persistent PostgreSQL data
